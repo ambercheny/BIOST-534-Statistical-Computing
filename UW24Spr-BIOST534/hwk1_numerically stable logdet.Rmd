@@ -1,0 +1,60 @@
+---
+title: "BIOST534-HW1-Ya Lin Chen"
+author: "Ya Lin Chen"
+date: "2024-04-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r PROBLEM 1}
+library(msos)
+
+stableLogDet <- function(R) {
+  evs <- eigen(R)$values
+  logdetValue <- sum(log(evs[evs > 0]))
+  return(logdetValue)
+}
+
+# example
+A <- matrix(c(1, 2, 2, 1), nrow = 2, byrow = TRUE)
+print(stableLogDet(A))
+print(logdet(A))
+```
+
+```{r PROBLEM 2}
+data <- read.table("erdata.txt", header = FALSE, sep = "\t")
+
+logmarglik <- function(data, A) {
+
+  Y <- as.numeric(data[, 1])
+  X_A <- as.matrix(data[, A, drop = FALSE])
+  
+  n <- nrow(data)  # Total number of observations
+  k <- length(A)   # The number of elements covariates
+  
+  # Construct the matrix M_A
+  M_A <- diag(1, k) + t(X_A) %*% X_A
+  
+  # Use stableLogDet to calculate log determinant of M_A
+  log_det_M_A <- stableLogDet(M_A)
+  
+  # Calculate the last term of formula 3
+  last_term <- as.numeric(1 + t(Y) %*% Y - t(Y) %*% X_A %*% solve(M_A) %*% t(X_A) %*% Y)
+  
+  # Compute log of formula 3 (log marginal likelihood)
+  log_marginal_likelihood <- lgamma((n + k + 2) / 2) -
+    lgamma((k + 2) / 2) -
+    0.5 * log_det_M_A -
+    (n + k + 2) / 2 * log(last_term)
+  
+  return(log_marginal_likelihood)
+}
+
+# Example usage
+# marginal likelihood of the regression on the variables X2, X5, X10
+result <- logmarglik(data, c(2, 5, 10))
+print(result)
+```

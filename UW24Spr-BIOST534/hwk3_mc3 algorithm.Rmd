@@ -1,0 +1,228 @@
+---
+title: "BIOST534 hw3"
+author: "Ya Lin Chen"
+date: "2024-04-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Install packates}
+library(rcdd)
+library(stats)
+```
+
+```{r READ DATA}
+data <- read.table("534binarydata.txt", header = FALSE, sep = "", na.strings = "NA", stringsAsFactors = FALSE)
+
+head(data)
+```
+
+```{r Calculate AIC}
+getLogisticAIC <- function(response,explanatory,data)
+{
+  response = names(data)[response]
+  explanatory = names(data)[explanatory]
+  #check if the regression has no explanatory variables
+  if(length(explanatory) == 0) {
+    # Regression with no explanatory variables
+    formula <- as.formula(paste(response, "~ 1"))
+  } else {
+    # Regression with at least one explanatory variable
+    # Construct the formula by pasting together the response and explanatory variables
+    formula <- as.formula(paste(response, "~", paste(explanatory, collapse = "+")))
+  }
+  # Fit the logistic regression model using the constructed formula
+  model <- glm(formula, data = data, family = binomial(link = "logit"))
+  
+  # Extract the deviance and number of coefficients
+  deviance <- model$deviance
+  
+  return(deviance+2*(1+length(explanatory)));
+}
+```
+
+```{r RCDD}
+#this is the version of the 'isValidLogistic' function
+#based on Charles Geyers RCDD package
+#returns TRUE if the calculated MLEs can be trusted
+#returns FALSE otherwise
+isValidLogisticRCDD <- function(response,explanatory,data)
+{
+if(0==length(explanatory))
+{
+#we assume that the empty logistic regresion is valid
+return(TRUE);
+}
+logisticreg = suppressWarnings(glm(data[,response] ~ as.matrix(data[,explanatory]),family=binomial(link=logit),x=TRUE));
+#data[,as.numeric(explanatory)]
+tanv = logisticreg$x;
+tanv[data[,response] == 1, ] <- (-tanv[data[,response] == 1, ]);
+vrep = cbind(0, 0, tanv);
+#with exact arithmetic; takes a long time
+#lout = linearity(d2q(vrep), rep = "V");
+
+lout = linearity(vrep, rep = "V");
+return(length(lout)==nrow(data));
+}
+```
+
+
+```{r Other functions}
+
+findNeighbors <- function(current_model) {
+  neighbors <- list()
+  
+  # Adding one variable to the model
+  for (variable in setdiff(colnames(data)[1:60], current_model)) {
+    neighbors[[length(neighbors) + 1]] <- sort(c(current_model, variable))
+  }
+  
+  # Removing one variable from the model
+  for (variable in current_model) {
+    neighbors[[length(neighbors) + 1]] <- sort(setdiff(current_model, variable))
+  }
+  
+  return(neighbors)
+}
+
+findValidNeighbors <- function(model, data, response) {
+  neighbors <- findNeighbors(model)
+  valid_neighbors <- Filter(function(explanatory) isValidLogisticRCDD(response, explanatory, data), neighbors)
+  return(valid_neighbors)
+}
+
+calculateP <- function(aic, neighbors) {
+  p_value <- -aic - log(length(neighbors))
+  return(p_value)
+}
+```
+
+PROBLEM 1
+```{r Main function for MC3 search algorithm}
+MC3search <- function(response, data, n_iter) {
+  # Step 0: Initialize parameters
+  p <- ncol(data) - 1  # number of predictor variables
+  response_name <- names(data)[response]  # get the name of the response variable
+  
+  # Function to randomly generate a valid starting model
+  generateValidModel <- function(response_name, data, p) {
+    repeat {
+      # Randomly choose number of variables and then select that many without replacement
+      explanatory <- sample(p, sample(1:p, 1))
+      # Check for validity of the modelv
+      if (isValidLogisticRCDD(response_name, names(data)[explanatory], data)) {
+        return(explanatory)  # return the indices of the valid model
+      }  
+    }
+  }
+  
+  
+  # Initialize the search with a valid model
+  best_model <- generateValidModel(response_name, data, p)
+  # print("best model")
+  # print(best_model)
+  best_aic <- getLogisticAIC(response, best_model, data)
+  # print("best aic")
+  # print(best_aic)
+  
+  best_model <- names(data)[best_model]
+  # print("best model")
+  # print(best_model)
+  # Begin iterative search
+  for (i in 1:n_iter) {
+    # Step 1 & 2: Find neighbors and validate them
+    neighbors <- findValidNeighbors(best_model, data, response_name)
+    # print("neighbors")
+    # print(length(neighbors))
+    
+    # Step 3: Sample a new model from the valid neighbors
+    new_model <- unlist(sample(neighbors, 1))
+    # print("new_model")
+    # print(new_model)
+    
+    # Step 4: find neighbors of the new model
+    neighbors_new <- findValidNeighbors(new_model, data, response_name)
+    # print("neighbors_new")
+    # print(length(neighbors_new))
+    
+    # Steps 5
+    new_model_indices <- match(new_model, names(data[1:60]))
+    new_aic <- getLogisticAIC(response, new_model_indices, data)
+    # print("new_aic")
+    # print(new_aic)
+    pa_new <- calculateP(new_aic, neighbors_new)
+    # print("pa_new")
+    # print(pa_new)
+    
+    # Steps 6
+    pa_best <- calculateP(best_aic, neighbors)
+    # print("pa_best")
+    # print(pa_best)
+    
+    # Steps 7: 
+    if (pa_new > pa_best) {
+      best_model <- new_model
+      best_aic <- new_aic
+    } else {
+      # Step 8: Decide whether to accept the new model using Metropolis-Hastings
+      if (log(runif(1)) <  pa_new - pa_best) {
+        best_model <- new_model
+        best_aic <- new_aic
+      }
+        else {
+          best_model <- best_model
+          best_aic <- best_aic
+        }
+      }
+  }
+  # Return the best model's AIC and the sorted indices of its variables
+  # print("final round")
+  # print(i)
+  return(list(bestAIC = best_aic, bestAICvars = sort(best_model)))
+  }
+```
+
+PROBLEM 2
+```{r}
+results <- vector("list", 10)  # Create a list to store results of each run
+
+for (i in 1:10) {
+  cat("Running instance", i, "...\n")
+  result <- MC3search(61, data, 25)
+  cat("Best AIC for run", i, ":", result$bestAIC, "\n")
+  cat("Best Model Variables for run", i, ":", paste(result$bestAICvars, collapse = ", "), "\n\n")
+  
+  results[[i]] <- result  # Store the result
+}
+# see below for the comment on the 10 selected models
+```
+```{r Comments on the 10 selected models}
+### mean AIC and standard deviations
+all_bestAIC <- list()
+for (i in seq_along(results)) {
+  all_bestAIC[[i]] <- results[[i]]$bestAIC
+}
+all_bestAIC <- unlist(all_bestAIC)
+# interpretation
+cat("mean of AIC", mean(all_bestAIC), '\n')
+cat("standard deviation of AIC", sd(all_bestAIC), '\n')
+
+### commonly selected variables
+all_selected_vars <- list()
+for (i in seq_along(results)) {
+  all_selected_vars[[i]] <- results[[i]]$bestAICvars
+}
+
+all_selected_vars <- unlist(all_selected_vars)
+
+# Count the frequency of each variable
+var_frequency <- table(all_selected_vars)
+print(var_frequency)
+
+# interpretation: V12, V27, and V44 are the top 3 most commonly selected variables
+```
+
+

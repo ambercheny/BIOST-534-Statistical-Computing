@@ -1,0 +1,320 @@
+---
+title: "BIOST534-HW2-Ya Lin Chen"
+author: "Ya Lin Chen"
+date: "2024-04-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r READ DATA}
+library(stats)
+data <- read.table("534binarydata.txt", header = FALSE, sep = "", na.strings = "NA", stringsAsFactors = FALSE)
+
+head(data)
+```
+
+
+```{r PROBLEM 1}
+getLogisticAIC <- function(response,explanatory,data)
+{
+  #check if the regression has no explanatory variables
+  if(length(explanatory) == 0) {
+    # Regression with no explanatory variables
+    formula <- as.formula(paste(response, "~ 1"))
+  } else {
+    # Regression with at least one explanatory variable
+    # Construct the formula by pasting together the response and explanatory variables
+    formula <- as.formula(paste(response, "~", paste(explanatory, collapse = "+")))
+  }
+  # Fit the logistic regression model using the constructed formula
+  model <- glm(formula, data = data, family = binomial(link = "logit"))
+  
+  # Extract the deviance and number of coefficients
+  deviance <- model$deviance
+  
+  return(deviance+2*(1+length(explanatory)));
+}
+
+#aic_null <- getLogisticAIC("V61", c(), data)
+#print(aic_null)
+```
+
+```{r PROBLEM 2}
+forwardSearchAIC <- function(response,data)
+{
+  
+  #start with the empty regression with no predictors
+  bestRegression = NULL;
+  #calculate the AIC of the empty regression
+  bestRegressionAIC = getLogisticAIC(response,bestRegression,data);
+  cat('\n\n\n\nforwardSearch :: The empty logistic regression has AIC = ',bestRegressionAIC,'\n');
+  
+  #vector that keeps track of all the variables
+  #that are currently NOT in the model
+  VariablesNotInModel <- setdiff(names(data), response)
+    # setdiff(names(data), response)
+  
+  #add variables one at a time to the current regression
+  #and retain that variable that gives the smallest values of AIC associated
+  #Make the model that includes that variable to be the current model
+  #if it gives a smaller AIC than the AIC of the current regression
+  
+  #stop when there are no variables that can be included in the model
+  stepNumber = 0;
+  while(length(VariablesNotInModel) >= 1) {
+    # Record the number of steps performed
+    stepNumber = stepNumber + 1;
+    
+    # Create a vector that records the AIC values of the regressions
+    regAIC = vector('numeric', length(VariablesNotInModel));
+    
+    # Take each variable that is not in the model and include it in the model
+    for(i in 1:length(VariablesNotInModel)) {
+      # Current variable to test
+      variable = VariablesNotInModel[i]
+      
+      # Attempt to add this variable to the current best regression
+      candidateModelVars = c(bestRegression, variable)
+      
+      # Calculate the AIC for this candidate model
+      currentAIC = getLogisticAIC(response, candidateModelVars, data)
+      
+      # Store the AIC in regAIC vector
+      regAIC[i] = currentAIC
+    }
+    
+    # Find the index of the minimum AIC in regAIC
+    minAICIndex = which.min(regAIC)
+    
+    # Check if this best new AIC is better than the current best AIC
+    if(regAIC[minAICIndex] < bestRegressionAIC) {
+      # Update the best regression and AIC
+      bestRegressionAIC = regAIC[minAICIndex]
+      bestRegression = c(bestRegression, VariablesNotInModel[minAICIndex])
+      
+      # Output for tracking progress
+      cat('Step', stepNumber, ': Best model now includes variables:', paste(bestRegression, collapse=", "), 'with AIC =', bestRegressionAIC, '\n')
+      
+      # Remove the added variable from VariablesNotInModel
+      VariablesNotInModel = VariablesNotInModel[-minAICIndex]
+    } else {
+      # No improvement can be made; exit the loop
+      break
+    }
+  }
+  
+  
+  return(list(aic=bestRegressionAIC,reg=bestRegression));
+}
+
+
+
+forwardSearchAIC("V61", data)
+# Best model: "V23" "V3"  "V22" "V21" "V49" "V4"  "V20" "V34" "V53" "V46"
+# AIC of the best model: 22
+```
+
+```{r PROBLEM 3}
+backwardSearchAIC <- function(response, data) {
+  # Start with the full regression that includes all the variables
+  bestRegression <- setdiff(names(data), response)
+  # Calculate the AIC of the full regression
+  bestRegressionAIC <- getLogisticAIC(response, bestRegression, data)
+  cat('The full logistic regression has AIC = ', bestRegressionAIC, '\n')
+
+  # Initialize the step counter
+  stepNumber <- 0
+  # Flag to keep track of AIC improvement
+  improved <- TRUE
+  
+  # Loop until no improvement is made
+  while(length(bestRegression) > 0 && improved) {
+    stepNumber <- stepNumber + 1
+    improved <- FALSE
+    currentBestAIC <- bestRegressionAIC
+    bestVariableToRemove <- NULL
+    
+    # Test removal of each variable
+    for(i in 1:length(bestRegression)) {
+      candidateModelVars <- bestRegression[-i]
+      currentAIC <- getLogisticAIC(response, candidateModelVars, data)
+      
+      if(currentAIC < currentBestAIC) {
+        currentBestAIC <- currentAIC
+        bestVariableToRemove <- i
+        improved <- TRUE
+      }
+    }
+    
+    # Update the model if improvement has been made
+    if(improved) {
+      bestRegression <- bestRegression[-bestVariableToRemove]
+      bestRegressionAIC <- currentBestAIC
+      cat('Step', stepNumber, ': Best model now includes variables:', paste(bestRegression, collapse=", "), 'with AIC =', bestRegressionAIC, '\n')
+    }
+  }
+  
+  # Return the best regression and AIC achieved
+  return(list(aic=bestRegressionAIC, reg=bestRegression))
+}
+
+backwardSearchAIC("V61", data)
+# Best model: "V1"  "V3"  "V9"  "V12" "V20" "V23" "V25" "V34" "V41" "V46"
+# AIC of the best model: 22
+```
+
+PROBLEM 4
+Using the forward selection, AIC and BIC methods obtain the same model ("V23" "V3"  "V22" "V21" "V49" "V4"  "V20" "V34" "V53" "V46")
+Using the backward selection, AIC and BIC methods obtain the same model ("V1"  "V3"  "V9"  "V12" "V20" "V23" "V25" "V34" "V41" "V46")
+However, the tow models obtained using forward selection and backward seection are different.
+
+```{r PROBLEM 4}
+getLogisticBIC <- function(response,explanatory,data)
+{
+  #check if the regression has no explanatory variables
+  if(length(explanatory) == 0) {
+    # Regression with no explanatory variables
+    formula <- as.formula(paste(response, "~ 1"))
+  } else {
+    # Regression with at least one explanatory variable
+    # Construct the formula by pasting together the response and explanatory variables
+    formula <- as.formula(paste(response, "~", paste(explanatory, collapse = "+")))
+  }
+  # Fit the logistic regression model using the constructed formula
+  model <- glm(formula, data = data, family = binomial(link = "logit"))
+  
+  # Extract the deviance and number of coefficients
+  deviance <- model$deviance
+  
+  return(deviance+log(nrow(data))*(1+length(explanatory)));
+}
+
+#bic_null <- getLogisticBIC("V61", c(), data)
+#print(bic_null)
+```
+
+
+```{r}
+forwardSearchBIC <- function(response,data)
+{
+  
+  #start with the empty regression with no predictors
+  bestRegression = NULL;
+  #calculate the AIC of the empty regression
+  bestRegressionAIC = getLogisticBIC(response,bestRegression,data);
+  cat('\n\n\n\nforwardSearch :: The empty logistic regression has BIC = ',bestRegressionAIC,'\n');
+  
+  #vector that keeps track of all the variables
+  #that are currently NOT in the model
+  VariablesNotInModel <- setdiff(names(data), response)
+    # setdiff(names(data), response)
+  
+  #add variables one at a time to the current regression
+  #and retain that variable that gives the smallest values of AIC associated
+  #Make the model that includes that variable to be the current model
+  #if it gives a smaller AIC than the AIC of the current regression
+  
+  #stop when there are no variables that can be included in the model
+  stepNumber = 0;
+  while(length(VariablesNotInModel) >= 1) {
+    # Record the number of steps performed
+    stepNumber = stepNumber + 1;
+    
+    # Create a vector that records the AIC values of the regressions
+    regAIC = vector('numeric', length(VariablesNotInModel));
+    
+    # Take each variable that is not in the model and include it in the model
+    for(i in 1:length(VariablesNotInModel)) {
+      # Current variable to test
+      variable = VariablesNotInModel[i]
+      
+      # Attempt to add this variable to the current best regression
+      candidateModelVars = c(bestRegression, variable)
+      
+      # Calculate the AIC for this candidate model
+      currentAIC = getLogisticBIC(response, candidateModelVars, data)
+      
+      # Store the AIC in regAIC vector
+      regAIC[i] = currentAIC
+    }
+    
+    # Find the index of the minimum AIC in regAIC
+    minAICIndex = which.min(regAIC)
+    
+    # Check if this best new AIC is better than the current best AIC
+    if(regAIC[minAICIndex] < bestRegressionAIC) {
+      # Update the best regression and AIC
+      bestRegressionAIC = regAIC[minAICIndex]
+      bestRegression = c(bestRegression, VariablesNotInModel[minAICIndex])
+      
+      # Output for tracking progress
+      cat('Step', stepNumber, ': Best model now includes variables:', paste(bestRegression, collapse=", "), 'with BIC =', bestRegressionAIC, '\n')
+      
+      # Remove the added variable from VariablesNotInModel
+      VariablesNotInModel = VariablesNotInModel[-minAICIndex]
+    } else {
+      # No improvement can be made; exit the loop
+      break
+    }
+  }
+  
+  
+  return(list(aic=bestRegressionAIC,reg=bestRegression));
+}
+
+forwardSearchBIC("V61", data)
+# Best model: "V23" "V3"  "V22" "V21" "V49" "V4"  "V20" "V34" "V53" "V46"
+# BIC of the best model: 54.96934
+```
+
+```{r}
+backwardSearchBIC <- function(response, data) {
+  # Start with the full regression that includes all the variables
+  bestRegression <- setdiff(names(data), response)
+  # Calculate the AIC of the full regression
+  bestRegressionAIC <- getLogisticBIC(response, bestRegression, data)
+  cat('The full logistic regression has BIC = ', bestRegressionAIC, '\n')
+
+  # Initialize the step counter
+  stepNumber <- 0
+  # Flag to keep track of AIC improvement
+  improved <- TRUE
+  
+  # Loop until no improvement is made
+  while(length(bestRegression) > 0 && improved) {
+    stepNumber <- stepNumber + 1
+    improved <- FALSE
+    currentBestAIC <- bestRegressionAIC
+    bestVariableToRemove <- NULL
+    
+    # Test removal of each variable
+    for(i in 1:length(bestRegression)) {
+      candidateModelVars <- bestRegression[-i]
+      currentAIC <- getLogisticBIC(response, candidateModelVars, data)
+      
+      if(currentAIC < currentBestAIC) {
+        currentBestAIC <- currentAIC
+        bestVariableToRemove <- i
+        improved <- TRUE
+      }
+    }
+    
+    # Update the model if improvement has been made
+    if(improved) {
+      bestRegression <- bestRegression[-bestVariableToRemove]
+      bestRegressionAIC <- currentBestAIC
+      cat('Step', stepNumber, ': Best model now includes variables:', paste(bestRegression, collapse=", "), 'with BIC =', bestRegressionAIC, '\n')
+    }
+  }
+  
+  # Return the best regression and AIC achieved
+  return(list(aic=bestRegressionAIC, reg=bestRegression))
+}
+
+backwardSearchBIC("V61", data)
+# Best model: "V1"  "V3"  "V9"  "V12" "V20" "V23" "V25" "V34" "V41" "V46"
+# BIC of the best model: 54.96934
+```
